@@ -1,0 +1,73 @@
+workflows:
+  ios-release:
+    name: iOS Release - App Store
+    max_build_duration: 60
+    working_directory: .
+
+    integrations:
+      app_store_connect: BMRTECK-CLIPLINK
+
+    environment:
+      groups:
+        - cliplink-group
+
+      vars:
+        BUNDLE_ID: "com.bmrteck.fssa"
+        TEAM_ID: "32M76U8V6W"
+
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+
+    scripts:
+
+      # * 1. Install dependencies
+      - name: Install dependencies
+        script: flutter pub get
+
+      # * 2. Set up iOS code signing (App Store Distribution)
+      - name: Set up code signing
+        script: |
+          echo "$CERTIFICATE_PRIVATE_KEY" | base64 --decode > /tmp/cert_key.pem
+          export CERTIFICATE_PRIVATE_KEY=$(cat /tmp/cert_key.pem)
+
+          keychain initialize
+
+          # * Main app profile
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+          keychain add-certificates
+          xcode-project use-profiles
+
+          # * Inject hardcoded Team ID for all targets
+          sed -i "" "s/DEVELOPMENT_TEAM = [^;]*/DEVELOPMENT_TEAM = $TEAM_ID/g" \
+            ios/Runner.xcodeproj/project.pbxproj
+
+          grep "DEVELOPMENT_TEAM" ios/Runner.xcodeproj/project.pbxproj
+
+      # * 3. Build the .ipa
+      - name: Build Flutter IPA
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    # * Collect the built artifact
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    # * Publish to App Store Connect
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
+      email:
+        recipients:
+          - bkan3060@gmail.com
